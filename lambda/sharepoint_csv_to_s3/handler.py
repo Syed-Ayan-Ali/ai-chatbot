@@ -2,7 +2,10 @@ import os
 import json
 import tempfile
 import boto3
+import msal
 from office365.sharepoint.client_context import ClientContext
+from office365.runtime.auth.token_response import TokenResponse
+from office365.runtime.compat import get_absolute_url
 
 # ====================== CONFIGURATION SECTION ======================
 # Must be the SharePoint *site* URL (not login.microsoftonline.com).
@@ -36,6 +39,9 @@ def connect_sharepoint():
     """
     Connect to SharePoint using Entra ID app-only auth (MSAL client credentials).
 
+    Uses with_access_token() so this works on office365-rest-python-client 2.x
+    (Lambda may not have with_client_secret(), which was added in 3.0).
+
     Do NOT use AuthenticationContext + acquire_token_for_app — that is the retired
     ACS (SharePoint app-only) flow and causes AADSTS900023 tenant 'none' errors when
     paired with Azure AD app registration credentials.
@@ -50,11 +56,21 @@ def connect_sharepoint():
     print(f"Targeting tenant ID: {tenant_id}")
     print(f"App registration ID: {client_id}")
 
-    ctx = ClientContext(SP_SITE_URL).with_client_secret(
-        tenant=tenant_id,
-        client_id=client_id,
-        client_secret=client_secret,
-    )
+    resource = get_absolute_url(SP_SITE_URL)
+    scopes = [f"{resource}/.default"]
+
+    def acquire_token():
+        app = msal.ConfidentialClientApplication(
+            client_id,
+            authority=f"https://login.microsoftonline.com/{tenant_id}",
+            client_credential=client_secret,
+        )
+        result = app.acquire_token_for_client(scopes=scopes)
+        if "access_token" not in result:
+            raise PermissionError(f"Azure token exchange failed: {result}")
+        return TokenResponse.from_json(result)
+
+    ctx = ClientContext(SP_SITE_URL).with_access_token(acquire_token)
 
     web = ctx.web.get().execute_query()
     print(f"Successfully connected to SharePoint site: {web.properties.get('Title', SP_SITE_URL)}")
