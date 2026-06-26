@@ -2,7 +2,6 @@ import os
 import json
 import tempfile
 import boto3
-import msal
 from office365.sharepoint.client_context import ClientContext
 from office365.runtime.auth.token_response import TokenResponse
 from office365.runtime.compat import get_absolute_url
@@ -60,6 +59,8 @@ def connect_sharepoint():
     scopes = [f"{resource}/.default"]
 
     def acquire_token():
+        import msal
+
         app = msal.ConfidentialClientApplication(
             client_id,
             authority=f"https://login.microsoftonline.com/{tenant_id}",
